@@ -9,7 +9,8 @@ const Article = require('./models/Article');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const app = express();
-const port = 5001;
+// پورت را از متغیر محیطی PORT می‌خوانیم، اگر تنظیم نشده بود، از 5001 به عنوان پیش‌فرض استفاده می‌کنیم
+const port = process.env.PORT || 5001; 
 
 // Middleware
 app.use(cors());
