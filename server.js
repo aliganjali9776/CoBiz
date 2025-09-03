@@ -5,7 +5,7 @@ const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
-const axios = require('axios'); // برای درخواست‌های شبکه‌ای پایدار
+const axios = require('axios');
 const User = require('./models/User');
 const Article = require('./models/Article');
 const Review = require('./models/Review');
@@ -136,34 +136,73 @@ app.get('/api/reviews', async (req, res) => {
   }
 });
 
-// --- API قیمت‌های بازار (با PricetoDay API) ---
+// --- API قیمت‌های بازار (با BRSAPI.ir) ---
 app.get('/api/prices', async (req, res) => {
   try {
-    const response = await axios.get('https://api.pricetoday.ir/v1/latest');
+    // آدرس صحیح API جدید و کلید API
+    const API_URL = `https://brsapi.ir/Api/Market/Gold_Currency.php?key=${process.env.BRSAPI_KEY}`;
+    
+    // اطمینان از وجود کلید API
+    if (!process.env.BRSAPI_KEY) {
+      throw new Error('BRSAPI_KEY is not defined in environment variables.');
+    }
+    
+    const response = await axios.get(API_URL);
+    
     const data = response.data;
-
-    if (!data || !data.data) {
+    
+    // بررسی پاسخ API
+    if (!data) {
       throw new Error('خطا در دریافت اطلاعات از سرویس قیمت.');
     }
-
+    
+    // تبدیل داده‌های دریافتی به فرمت مورد نیاز فرانت‌اند
     const prices = {
-      gold: [
-        { name: "گرم طلا ۱۸ عیار", price: data.data.find(i => i.slug === 'gold_18k_gram')?.price || 'N/A', change: '0' },
-        { name: "سکه امامی", price: data.data.find(i => i.slug === 'sekeh_emami')?.price || 'N/A', change: '0' },
-        { name: "سکه بهار آزادی", price: data.data.find(i => i.slug === 'sekeh_bahar_azadi')?.price || 'N/A', change: '0' },
-        { name: "نیم سکه", price: data.data.find(i => i.slug === 'nim_sekeh')?.price || 'N/A', change: '0' },
-      ],
-      currency: [
-        { name: "دلار آمریکا", price: data.data.find(i => i.slug === 'usd')?.price || 'N/A', change: '0' },
-        { name: "یورو", price: data.data.find(i => i.slug === 'eur')?.price || 'N/A', change: '0' },
-        { name: "درهم امارات", price: data.data.find(i => i.slug === 'aed')?.price || 'N/A', change: '0' },
-        { name: "لیر ترکیه", price: data.data.find(i => i.slug === 'try')?.price || 'N/A', change: '0' },
-      ]
+      gold: data.gold.map(item => ({
+        name: item.name,
+        price: item.price,
+        change: item.change_percent,
+        unit: item.unit
+      })),
+      currency: data.currency.map(item => ({
+        name: item.name,
+        price: item.price,
+        change: item.change_percent,
+        unit: item.unit
+      })),
     };
     res.json(prices);
   } catch (error) {
     console.error("خطا در API قیمت‌ها:", error.message);
     res.status(500).json({ error: 'مشکلی در سرور هنگام دریافت قیمت‌ها پیش آمد.' });
+  }
+});
+
+// --- API برای دریافت اخبار از NewsData.io ---
+app.get('/api/news', async (req, res) => {
+  try {
+    const NEWS_API_KEY = process.env.NEWSDATA_API_KEY;
+    if (!NEWS_API_KEY) {
+      throw new Error('NEWSDATA_API_KEY is not defined in environment variables.');
+    }
+
+    const categories = 'business,technology,science';
+    const language = 'fa';
+    const country = 'ir';
+
+    const response = await axios.get('https://newsdata.io/api/1/news', {
+      params: {
+        apikey: NEWS_API_KEY,
+        category: categories,
+        language: language,
+        country: country
+      }
+    });
+
+    res.json(response.data.results);
+  } catch (error) {
+    console.error("Error fetching news from NewsData.io:", error.message);
+    res.status(500).json({ error: 'مشکلی در دریافت اخبار پیش آمد.' });
   }
 });
 
@@ -178,22 +217,65 @@ app.get('/api/admin/users', async (req, res) => {
   }
 });
 
-// --- Endpoint هوش مصنوعی ---
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-app.post('/api/chat', async (req, res) => {
+// --- Endpoint هوش مصنوعی (چند-ایجنت) ---
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+
+app.post('/api/business-chat', async (req, res) => {
   try {
     const { prompt } = req.body;
     if (!prompt) {
       return res.status(400).json({ error: 'پیام کاربر نمی‌تواند خالی باشد.' });
     }
-    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
-    res.json({ response: text });
+
+    // تعریف نقش برای هر ایجنت
+    const marketingPersona = `شما یک مدیر مارکتینگ متخصص و حرفه‌ای هستید. در تحلیل کسب‌وکار، تنها بر روی استراتژی‌های بازاریابی، کانال‌های تبلیغاتی، برندینگ، و جذب مشتری تمرکز کنید. پاسخ شما باید به زبان فارسی و با لحنی حرفه‌ای باشد.`;
+    const salesPersona = `شما یک مدیر فروش با تجربه هستید. در تحلیل کسب‌وکار، فقط به فرآیندهای فروش، افزایش نرخ تبدیل، مدیریت تیم فروش و پیش‌بینی درآمد نگاه کنید. پاسخ شما باید به زبان فارسی و با لحنی حرفه‌ای باشد.`;
+    const financialPersona = `شما یک مدیر مالی با دقت بالا هستید. در تحلیل کسب‌وکار، فقط به هزینه‌ها، بودجه‌بندی، سودآوری و بازگشت سرمایه (ROI) توجه کنید. پاسخ شما باید به زبان فارسی و با لحنی حرفه‌ای باشد.`;
+
+    // ارسال درخواست به سه ایجنت به صورت همزمان با استفاده از axios
+    const [marketingResult, salesResult, financialResult] = await Promise.all([
+      axios.post(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+        contents: [{ parts: [{ text: `${marketingPersona}\n\nسؤال: ${prompt}` }] }]
+      }),
+      axios.post(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+        contents: [{ parts: [{ text: `${salesPersona}\n\nسؤال: ${prompt}` }] }]
+      }),
+      axios.post(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+        contents: [{ parts: [{ text: `${financialPersona}\n\nسؤال: ${prompt}` }] }]
+      }),
+    ]);
+    
+    // استخراج متن پاسخ از هر ایجنت
+    const marketingResponse = marketingResult.data.candidates[0].content.parts[0].text;
+    const salesResponse = salesResult.data.candidates[0].content.parts[0].text;
+    const financialResponse = financialResult.data.candidates[0].content.parts[0].text;
+    
+    // ترکیب پاسخ‌ها در یک پاسخ نهایی
+    const combinedResponse = `
+**تحلیل مدیر مارکتینگ:**
+${marketingResponse}
+
+---
+
+**تحلیل مدیر فروش:**
+${salesResponse}
+
+---
+
+**تحلیل مدیر مالی:**
+${financialResponse}
+    `;
+
+    res.json({ response: combinedResponse });
+
   } catch (error) {
-    console.error("Error in /api/chat:", error);
-    res.status(500).json({ error: 'مشکلی در ارتباط با سرویس هوش مصنوعی پیش آمد.' });
+    console.error("Error in /api/business-chat:", error.message);
+    // بررسی دقیق‌تر خطای axios
+    if (error.response && error.response.data) {
+      console.error("Gemini API Error Details:", error.response.data);
+    }
+    res.status(500).json({ error: 'مشکلی در اجرای هوش مصنوعی پیش آمد.' });
   }
 });
 
