@@ -17,11 +17,12 @@ const KnowledgeFormat = require('./models/KnowledgeFormat');
 const app = express();
 const port = process.env.PORT || 5001;
 
-// ✅ تنظیمات امنیتی CORS برای قبول درخواست از دامنه‌های شما
+// تنظیمات امنیتی CORS برای قبول درخواست از دامنه‌های شما
 const allowedOrigins = [
   'http://localhost:3000', // فرانت‌اند در حالت تست
   'http://localhost:5173', // پنل ادمین در حالت تست
   'https://co-biz.ir',     // دامنه اصلی شما
+  'https://www.co-biz.ir', // دامنه با www
   'https://cobiz-admin-panel.netlify.app' // دامنه پنل ادمین
 ];
 const corsOptions = {
@@ -48,10 +49,10 @@ const auth = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
 
-  if (token == null) return res.sendStatus(401); // Unauthorized
+  if (token == null) return res.sendStatus(401);
 
   jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
-    if (err) return res.sendStatus(403); // Forbidden
+    if (err) return res.sendStatus(403);
     req.user = user;
     next();
   });
@@ -141,7 +142,7 @@ app.post('/api/users/request-reset-code', async (req, res) => {
     
     const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
     user.resetPasswordCode = resetCode;
-    user.resetPasswordExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
+    user.resetPasswordExpires = Date.now() + 10 * 60 * 1000;
     await user.save();
 
     console.log(`کد بازیابی برای ${phone}: ${resetCode}`);
@@ -169,9 +170,34 @@ app.post('/api/users/reset-password-with-code', async (req, res) => {
     }
 });
 
+// ==========================================================================
+// --- API های عمومی (اخبار و قیمت) ---
+// ==========================================================================
+app.get('/api/prices', async (req, res) => {
+  try {
+    const API_URL = `https://brsapi.ir/Api/Market/Gold_Currency.php?key=${process.env.BRSAPI_KEY}`;
+    const response = await axios.get(API_URL);
+    res.json(response.data);
+  } catch (error) {
+    res.status(500).json({ error: 'مشکلی در سرور هنگام دریافت قیمت‌ها پیش آمد.' });
+  }
+});
 
-// ... (بقیه API های عمومی شما مثل اخبار و قیمت اینجا قرار می‌گیرد)
-
+app.get('/api/news', async (req, res) => {
+  try {
+    const response = await axios.get('https://newsdata.io/api/1/news', {
+      params: {
+        apikey: process.env.NEWSDATA_API_KEY,
+        category: 'business,technology',
+        language: 'fa',
+        country: 'ir'
+      }
+    });
+    res.json(response.data.results);
+  } catch (error) {
+    res.status(500).json({ error: 'مشکلی در دریافت اخبار پیش آمد.' });
+  }
+});
 
 // ==========================================================================
 // --- API های پنل ادمین (نیازمند توکن و نقش ادمین) ---
@@ -185,11 +211,11 @@ app.get('/api/admin/users', auth, adminAuth, async (req, res) => {
   }
 });
 
-// ... (تمام API های دیگر پنل ادمین مثل مدیریت مقالات و ... باید اینجا قرار بگیرند و از auth و adminAuth استفاده کنند)
+// (تمام API های دیگر پنل ادمین مثل مدیریت مقالات و ... هم باید اینجا قرار بگیرند)
 
 
 // --- اجرای سرور ---
-app.listen(port, () => {
-  console.log(`سرور بک‌اند با موفقیت در آدرس http://localhost:${port} اجرا شد`);
+app.listen(port, '0.0.0.0', () => { // ✅ اصلاح شده برای Render
+  console.log(`سرور بک‌اند با موفقیت در پورت ${port} اجرا شد`);
 });
 
