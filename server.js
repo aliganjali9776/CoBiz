@@ -21,9 +21,12 @@ const port = process.env.PORT || 5001;
 
 // تنظیمات CORS
 const allowedOrigins = [
-  'http://localhost:3000', 'http://localhost:5173',
-  'https://co-biz.ir', 'https://www.co-biz.ir',
-  'https://cobiz-admin-panel.netlify.app'
+    'http://localhost:3000',
+  'http://localhost:5173',
+  'https://co-biz.ir',
+  'https://www.co-biz.ir',
+  'https://cobiz-admin-panel.netlify.app',
+  'http://co-biz.ir' 
 ];
 const corsOptions = {
   origin: (origin, callback) => {
