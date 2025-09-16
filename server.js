@@ -6,7 +6,6 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const axios = require('axios');
 const jwt = require('jsonwebtoken');
-const { OAuth2Client } = require('google-auth-library');
 const multer = require('multer');
 const path = require('path');
 
@@ -118,28 +117,6 @@ app.post('/api/users/login', async (req, res) => {
     res.status(500).json({ error: 'مشکلی در سرور هنگام ورود پیش آمد.' });
   }
 });
-
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
-app.post('/api/users/google-login', async (req, res) => {
-    try {
-        const { token } = req.body;
-        const ticket = await googleClient.verifyIdToken({ idToken: token, audience: GOOGLE_CLIENT_ID });
-        const { name, email } = ticket.getPayload();
-        let user = await User.findOne({ email });
-        if (!user) {
-            user = new User({ name, email });
-            await user.save();
-        }
-        const appToken = generateToken(user);
-        const userResponse = { _id: user._id, name: user.name, email: user.email, role: user.role };
-        res.status(200).json({ user: userResponse, token: `Bearer ${appToken}` });
-    } catch (error) {
-        console.error("Google Login Error:", error);
-        res.status(400).json({ error: 'خطا در تایید هویت با گوگل.' });
-    }
-});
-
 app.post('/api/users/request-reset-code', async (req, res) => {
   try {
     const { phone } = req.body;
